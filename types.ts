@@ -1,26 +1,19 @@
-export interface DailyReport {
+export interface ReportItem {
+  id: string;
   employeeName: string;
-  reportDate: string;
-  department: string;
-  contentSummary: string;
-  nextSteps: string;
-  blockers: string;
-  matchedKeywords: string[];
+  date: string;
+  department: '食百' | '水产肉品' | '蔬果' | '熟食冻品' | '后勤';
+  content: string;
 }
 
-export interface ProcessingStatus {
-  isProcessing: boolean;
-  error: string | null;
-  step: 'idle' | 'analyzing' | 'formatting' | 'complete';
+export interface ParseResult {
+  reports: ReportItem[];
+  summary: string;
 }
 
-export enum ViewMode {
-  INPUT = 'INPUT',
-  PREVIEW = 'PREVIEW'
-}
-
-export interface CloudConfig {
-  binId: string;
-  apiKey: string;
-  enabled: boolean;
+export enum ParsingStatus {
+  IDLE = 'IDLE',
+  ANALYZING = 'ANALYZING',
+  SUCCESS = 'SUCCESS',
+  ERROR = 'ERROR'
 }

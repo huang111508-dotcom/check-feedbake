@@ -1,5 +1,5 @@
 {
-  "name": "DingTalk Report Summarizer",
-  "description": "An intelligent tool to parse, structure, and export DingTalk daily reports into Excel/CSV formats using Gemini AI.",
+  "name": "DingTalk Smart Report Parser",
+  "description": "An AI-powered tool to parse unstructured DingTalk work reports into structured Excel tables with one click.",
   "requestFramePermissions": []
 }

@@ -1,261 +1,308 @@
-import React, { useState, useCallback, useEffect } from 'react';
-import { parseReportsWithGemini } from './services/geminiService';
-import { fetchFromCloud, saveToCloud } from './services/jsonBinService';
-import { DailyReport, ProcessingStatus, CloudConfig } from './types';
-import KeywordInput from './components/KeywordInput';
-import ResultsTable from './components/ResultsTable';
-import CloudSettings from './components/CloudSettings';
-import { SparklesIcon, DownloadIcon, RefreshIcon, CloudIcon, CogIcon } from './components/Icons';
+import React, { useState, useEffect, useMemo } from 'react';
+import { InputSection } from './components/InputSection';
+import { ReportTable } from './components/ReportTable';
+import { Dashboard } from './components/Dashboard';
+import { parseDingTalkLogs } from './services/geminiService';
+import { exportToExcel } from './utils/exportUtils';
+import { ReportItem, ParsingStatus } from './types';
+import { Download, LayoutDashboard, MessageSquareText, RefreshCw, Calendar as CalendarIcon, Filter, Cloud, CloudOff, AlertTriangle } from 'lucide-react';
+import { initializeApp } from "firebase/app";
+import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc, writeBatch, getDocs } from "firebase/firestore";
 
-function App() {
-  const [inputText, setInputText] = useState('');
-  const [keywords, setKeywords] = useState<string[]>([]);
-  const [reports, setReports] = useState<DailyReport[]>([]);
-  const [showSettings, setShowSettings] = useState(false);
+// ------------------------------------------------------------------
+// Firebase Configuration
+// ------------------------------------------------------------------
+const firebaseConfig = {
+  apiKey: "AIzaSyBZ55456oRdByR6hfogsgEGympq17Yy0o4",
+  authDomain: "dingtalk-parser.firebaseapp.com",
+  projectId: "dingtalk-parser",
+  storageBucket: "dingtalk-parser.firebasestorage.app",
+  messagingSenderId: "160835767748",
+  appId: "1:160835767748:web:6b8f4790ba362d70a4a891",
+  measurementId: "G-4N1QF327QH"
+};
+
+// Initialize Firebase only if config is set (which it is now)
+const isConfigured = firebaseConfig.apiKey !== "YOUR_API_KEY";
+let db: any = null;
+
+if (isConfigured) {
+  try {
+    const app = initializeApp(firebaseConfig);
+    db = getFirestore(app);
+  } catch (e) {
+    console.error("Firebase init error:", e);
+  }
+}
+
+const App: React.FC = () => {
+  const [reports, setReports] = useState<ReportItem[]>([]);
+  const [status, setStatus] = useState<ParsingStatus>(ParsingStatus.IDLE);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
-  const [cloudConfig, setCloudConfig] = useState<CloudConfig>(() => {
-    const saved = localStorage.getItem('dingtalk_cloud_config');
-    return saved ? JSON.parse(saved) : { binId: '', apiKey: '', enabled: false };
-  });
+  // Date Filtering State
+  const [filterDate, setFilterDate] = useState<string>('');
 
-  const [status, setStatus] = useState<ProcessingStatus>({
-    isProcessing: false,
-    error: null,
-    step: 'idle'
-  });
-
-  const [cloudStatus, setCloudStatus] = useState<string>('');
-
-  // Initial Data Load (Local -> Cloud)
+  // 1. Real-time Cloud Sync (Firebase)
   useEffect(() => {
-    const loadData = async () => {
-      // 1. Try Local Storage first for instant render
-      const localSaved = localStorage.getItem('dingtalk_reports_v2');
-      if (localSaved) {
-        try {
-          const parsed = JSON.parse(localSaved);
-          if (Array.isArray(parsed)) setReports(parsed);
-        } catch (e) {
-          console.error("Failed to load local", e);
-        }
-      }
+    if (!isConfigured || !db) return;
 
-      // 2. If Cloud Enabled, fetch from cloud and overwrite/merge
-      if (cloudConfig.enabled && cloudConfig.binId && cloudConfig.apiKey) {
-        try {
-            setCloudStatus('Syncing...');
-            const cloudData = await fetchFromCloud(cloudConfig.binId, cloudConfig.apiKey);
-            if (cloudData.length > 0) {
-                setReports(cloudData);
-                localStorage.setItem('dingtalk_reports_v2', JSON.stringify(cloudData));
-            }
-            setCloudStatus('Synced');
-            setTimeout(() => setCloudStatus(''), 2000);
-        } catch (e) {
-            console.error(e);
-            setCloudStatus('Sync Error');
-        }
-      }
-    };
-    loadData();
-  }, [cloudConfig.enabled, cloudConfig.binId, cloudConfig.apiKey]);
-
-  // Persist Config
-  useEffect(() => {
-    localStorage.setItem('dingtalk_cloud_config', JSON.stringify(cloudConfig));
-  }, [cloudConfig]);
-
-  // Save to Cloud Function
-  const persistReports = async (newReports: DailyReport[]) => {
-    setReports(newReports);
-    localStorage.setItem('dingtalk_reports_v2', JSON.stringify(newReports));
-
-    if (cloudConfig.enabled && cloudConfig.binId && cloudConfig.apiKey) {
-      try {
-        setCloudStatus('Saving...');
-        await saveToCloud(cloudConfig.binId, cloudConfig.apiKey, newReports);
-        setCloudStatus('Saved to Cloud');
-        setTimeout(() => setCloudStatus(''), 2000);
-      } catch (e) {
-        console.error("Cloud Save Failed", e);
-        setCloudStatus('Save Failed');
-      }
-    }
-  };
-
-  const handleParse = useCallback(async () => {
-    if (!inputText.trim()) {
-      setStatus({ isProcessing: false, error: "Please enter text to parse.", step: 'idle' });
-      return;
-    }
-
-    setStatus({ isProcessing: true, error: null, step: 'analyzing' });
-
-    try {
-      const newReports = await parseReportsWithGemini(inputText, keywords);
-      const updatedReports = [...newReports, ...reports]; // Prepend new
-      await persistReports(updatedReports);
-      
-      setInputText(''); 
-      setStatus({ isProcessing: false, error: null, step: 'complete' });
-    } catch (err: any) {
-      console.error(err);
-      setStatus({ isProcessing: false, error: err.message || "An unknown error occurred.", step: 'idle' });
-    }
-  }, [inputText, keywords, reports, cloudConfig]);
-
-  const handleDownloadCSV = () => {
-    if (reports.length === 0) return;
-    const BOM = '\uFEFF';
-    const headers = ['Department', 'Employee Name', 'Date', 'Content', 'Next Steps', 'Blockers', 'Keywords'].join(',');
+    // Listen to 'reports' collection, ordered by date descending
+    const q = query(collection(db, "reports"), orderBy("date", "desc"));
     
-    const rows = reports.map(r => {
-      const safe = (str: string) => `"${(str || '').replace(/"/g, '""')}"`;
-      return [
-        safe(r.department),
-        safe(r.employeeName),
-        safe(r.reportDate),
-        safe(r.contentSummary),
-        safe(r.nextSteps),
-        safe(r.blockers),
-        safe(r.matchedKeywords.join('; '))
-      ].join(',');
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const cloudReports = snapshot.docs.map(doc => ({
+        id: doc.id, // Use Cloud ID
+        ...doc.data()
+      })) as ReportItem[];
+      setReports(cloudReports);
+    }, (error) => {
+      console.error("Sync error:", error);
+      // Only show error if it's likely a permission issue, to avoid scaring users on network blips
+      if (error.code === 'permission-denied') {
+        setErrorMsg("Cloud sync failed: Permission denied. Please check Firestore Rules.");
+      }
     });
 
-    const csvContent = BOM + [headers, ...rows].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `dingtalk_reports_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
+    return () => unsubscribe();
+  }, []);
 
-  const handleRemoveReport = async (index: number) => {
-    const updated = reports.filter((_, i) => i !== index);
-    await persistReports(updated);
-  };
-
-  const clearAll = async () => {
-    if(window.confirm("Are you sure you want to clear all parsed data? This will clear local and cloud storage.")) {
-        await persistReports([]);
-        setStatus({ isProcessing: false, error: null, step: 'idle' });
+  const handleAnalyze = async (text: string) => {
+    setStatus(ParsingStatus.ANALYZING);
+    setErrorMsg(null);
+    try {
+      const newReports = await parseDingTalkLogs(text);
+      
+      if (isConfigured && db) {
+        // Cloud Mode: Upload one by one
+        // We don't manually setReports here, the onSnapshot listener will do it automatically
+        const uploadPromises = newReports.map(item => {
+          // Remove temporary ID, let Firebase generate one
+          const { id, ...data } = item;
+          return addDoc(collection(db, "reports"), data);
+        });
+        await Promise.all(uploadPromises);
+      } else {
+        // Fallback Local Mode (if config missing)
+        setReports(prev => {
+          const updated = [...newReports, ...prev];
+          return updated.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        });
+      }
+      
+      setStatus(ParsingStatus.SUCCESS);
+      setFilterDate(''); // Reset filter to show new data
+    } catch (e) {
+      console.error(e);
+      setStatus(ParsingStatus.ERROR);
+      setErrorMsg("Failed to parse the text. Please check your AI API key or text format.");
     }
   };
 
+  const handleDelete = async (id: string) => {
+    if (isConfigured && db) {
+      try {
+        await deleteDoc(doc(db, "reports", id));
+      } catch (e) {
+        console.error("Delete failed", e);
+        alert("Failed to delete from cloud. Check permissions.");
+      }
+    } else {
+      setReports(prev => prev.filter(r => r.id !== id));
+    }
+  };
+
+  const handleExport = () => {
+    const dateStr = filterDate || new Date().toISOString().split('T')[0];
+    exportToExcel(displayedReports, `DingTalk_Summary_${dateStr}.xlsx`);
+  };
+
+  const handleReset = async () => {
+    const confirmMsg = isConfigured 
+      ? "DANGER: This will permanently delete ALL records from the cloud database for EVERYONE. Continue?" 
+      : "Are you sure you want to clear all local data?";
+
+    if (confirm(confirmMsg)) {
+      if (isConfigured && db) {
+        // Batch delete for Cloud
+        try {
+          setStatus(ParsingStatus.ANALYZING); // Show spinner
+          const q = query(collection(db, "reports"));
+          const snapshot = await getDocs(q);
+          const batch = writeBatch(db);
+          snapshot.docs.forEach((doc) => {
+            batch.delete(doc.ref);
+          });
+          await batch.commit();
+          setStatus(ParsingStatus.IDLE);
+        } catch (e) {
+          console.error("Batch delete failed", e);
+          alert("Failed to clear cloud data.");
+          setStatus(ParsingStatus.IDLE);
+        }
+      } else {
+        // Local Mode
+        setReports([]);
+        setStatus(ParsingStatus.IDLE);
+      }
+    }
+  };
+
+  // Compute filtered reports
+  const displayedReports = useMemo(() => {
+    if (!filterDate) return reports;
+    return reports.filter(r => r.date === filterDate);
+  }, [reports, filterDate]);
+
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Settings Modal */}
-      {showSettings && (
-        <CloudSettings 
-          config={cloudConfig} 
-          onSave={setCloudConfig} 
-          onClose={() => setShowSettings(false)} 
-        />
+    <div className="min-h-screen bg-gray-50 text-gray-900 pb-20">
+      {/* Configuration Warning Banner */}
+      {!isConfigured && (
+        <div className="bg-yellow-50 border-b border-yellow-200 px-4 py-2 text-sm text-yellow-800 flex items-center justify-center gap-2">
+          <AlertTriangle className="w-4 h-4" />
+          <span>
+            <strong>Cloud Sync Inactive:</strong> Firebase configuration is missing. Currently using Local Storage.
+          </span>
+        </div>
       )}
 
       {/* Header */}
-      <header className="bg-white shadow-sm sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <div className="bg-blue-600 p-2 rounded-lg text-white">
-              <CloudIcon />
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-20">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white shrink-0">
+              <MessageSquareText className="w-5 h-5" />
             </div>
-            <div>
-              <h1 className="text-xl font-bold text-gray-900 tracking-tight">DingTalk Team Report</h1>
-              <div className="flex items-center gap-2">
-                 <p className="text-xs text-gray-500">
-                   {cloudConfig.enabled ? '🟢 Cloud Sync Active' : '⚪️ Local Storage Only'}
-                 </p>
-                 {cloudStatus && <span className="text-xs text-blue-600 font-medium animate-pulse">{cloudStatus}</span>}
-              </div>
+            <h1 className="text-xl font-bold tracking-tight text-gray-900 truncate">DingTalk Parser</h1>
+            <div className={`hidden md:flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium border ${isConfigured ? 'bg-green-50 text-green-700 border-green-100' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+               {isConfigured ? <Cloud className="w-3 h-3" /> : <CloudOff className="w-3 h-3" />}
+               <span>{isConfigured ? 'Cloud Connected' : 'Local Mode'}</span>
             </div>
           </div>
-          <div className="flex items-center gap-4">
-             <button 
-               onClick={() => setShowSettings(true)}
-               className="text-gray-500 hover:text-gray-700 flex items-center gap-1 text-sm font-medium"
-             >
-               <CogIcon /> Settings
-             </button>
+
+          <div className="flex items-center gap-3">
+             {/* Date Filter */}
+             <div className="relative group">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Filter className={`w-4 h-4 ${filterDate ? 'text-blue-500' : 'text-gray-400'}`} />
+                </div>
+                <input 
+                  type="date"
+                  value={filterDate}
+                  onChange={(e) => setFilterDate(e.target.value)}
+                  className={`
+                    pl-9 pr-3 py-1.5 text-sm border rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition-all
+                    ${filterDate ? 'border-blue-200 bg-blue-50 text-blue-800 font-medium' : 'border-gray-300 text-gray-600 bg-gray-50'}
+                  `}
+                  title="Filter history by date"
+                />
+                {filterDate && (
+                  <button 
+                    onClick={() => setFilterDate('')}
+                    className="absolute inset-y-0 right-8 flex items-center text-xs text-blue-600 hover:text-blue-800 font-medium"
+                  >
+                    Clear
+                  </button>
+                )}
+             </div>
+
+             {reports.length > 0 && (
+               <div className="flex items-center gap-2 border-l border-gray-200 pl-3 ml-1">
+                  <button
+                    onClick={handleExport}
+                    className="p-2 text-gray-600 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                    title="Export Current View to Excel"
+                  >
+                    <Download className="w-5 h-5" />
+                  </button>
+                  <button
+                    onClick={handleReset}
+                    className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    title="Clear All History (Danger)"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+               </div>
+             )}
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 h-full">
-          
-          {/* Left Column: Input */}
-          <div className="lg:col-span-4 space-y-6">
-            <div className="bg-white rounded-lg shadow p-6 space-y-4">
-              <h2 className="text-lg font-medium text-gray-900">1. Paste Daily Reports</h2>
-              <p className="text-sm text-gray-500">
-                AI parses DingTalk logs & syncs to cloud if enabled.
-              </p>
-              
-              <textarea
-                value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
-                placeholder="Paste chat logs here..."
-                className="w-full h-64 p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 sm:text-sm font-mono text-gray-700 resize-none"
-              />
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Input Section - Only show if not strictly filtering history, or always show for quick add */}
+        {!filterDate && (
+          <InputSection 
+            onAnalyze={handleAnalyze} 
+            isAnalyzing={status === ParsingStatus.ANALYZING} 
+          />
+        )}
 
-              <KeywordInput keywords={keywords} setKeywords={setKeywords} />
-
-              {status.error && (
-                <div className="p-3 bg-red-50 text-red-700 text-sm rounded-md">
-                  {status.error}
-                </div>
-              )}
-
-              <button
-                onClick={handleParse}
-                disabled={status.isProcessing || !inputText.trim()}
-                className={`w-full flex justify-center items-center gap-2 py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white transition-all
-                  ${status.isProcessing || !inputText.trim() 
-                    ? 'bg-blue-400 cursor-not-allowed' 
-                    : 'bg-blue-600 hover:bg-blue-700'}`}
-              >
-                {status.isProcessing ? 'Analyzing...' : <><SparklesIcon /> Summarize & Save</>}
-              </button>
-            </div>
+        {errorMsg && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-600 flex items-center gap-2">
+            <span className="font-semibold">Error:</span> {errorMsg}
           </div>
+        )}
 
-          {/* Right Column: Output */}
-          <div className="lg:col-span-8 flex flex-col space-y-6">
-            <div className="bg-white rounded-lg shadow flex flex-col h-full">
-              <div className="p-6 border-b border-gray-200 flex justify-between items-center">
-                <h2 className="text-lg font-medium text-gray-900">2. Review & Export</h2>
-                <div className="flex gap-2">
-                   {reports.length > 0 && (
-                    <button onClick={clearAll} className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
-                        <span className="mr-2">Clear</span> <RefreshIcon />
-                    </button>
-                   )}
-                   <button onClick={handleDownloadCSV} disabled={reports.length === 0} className={`inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white ${reports.length === 0 ? 'bg-green-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}>
-                    <DownloadIcon /> <span className="ml-2">Download CSV</span>
-                  </button>
-                </div>
+        {reports.length > 0 && (
+          <>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <LayoutDashboard className="w-5 h-5 text-gray-500" />
+                <h2 className="text-lg font-semibold text-gray-800">
+                  {filterDate ? `Dashboard (${filterDate})` : 'All Time Overview'}
+                </h2>
               </div>
-              
-              <div className="flex-1 p-6 bg-gray-50 overflow-hidden flex flex-col">
-                 <ResultsTable data={reports} onRemove={handleRemoveReport} />
-                 {cloudConfig.enabled && (
-                   <p className="mt-4 text-xs text-gray-400 text-center">
-                     Data is synced to your JSONBin.io cloud bin.
-                   </p>
-                 )}
+              <div className="text-sm text-gray-500">
+                Total Records: {reports.length} {filterDate && `(Showing ${displayedReports.length})`}
               </div>
             </div>
-          </div>
 
-        </div>
+            {/* Pass filtered reports to Dashboard so charts update based on date selection */}
+            <Dashboard reports={displayedReports} />
+
+            <div className="flex items-center justify-between mb-4 mt-8">
+               <h2 className="text-lg font-semibold text-gray-800">
+                 {filterDate ? `Records for ${filterDate}` : 'Historical Records'}
+               </h2>
+            </div>
+            
+            {displayedReports.length === 0 ? (
+              <div className="text-center py-12 bg-white rounded-2xl border border-gray-200 border-dashed">
+                 <p className="text-gray-500">No records found for this date.</p>
+                 <button onClick={() => setFilterDate('')} className="mt-2 text-blue-600 hover:underline">Clear Filter</button>
+              </div>
+            ) : (
+              <ReportTable reports={displayedReports} onDelete={handleDelete} />
+            )}
+          </>
+        )}
       </main>
     </div>
   );
+};
+
+// Quick helper for trash icon in header
+function Trash2(props: any) {
+  return (
+    <svg
+      {...props}
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 6h18" />
+      <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+      <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+      <line x1="10" x2="10" y1="11" y2="17" />
+      <line x1="14" x2="14" y1="11" y2="17" />
+    </svg>
+  )
 }
 
 export default App;
