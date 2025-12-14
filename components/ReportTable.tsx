@@ -1,120 +1,106 @@
-import React, { useState } from 'react';
+import React, { useMemo } from 'react';
 import { ReportItem } from '../types';
-import { Trash2, Users, Calendar, ChevronDown, ChevronRight, MapPin } from 'lucide-react';
+import { Trash2, Calendar } from 'lucide-react';
 
 interface ReportTableProps {
   reports: ReportItem[];
   onDelete: (id: string) => void;
 }
 
-const DepartmentBadge: React.FC<{ dept: string }> = ({ dept }) => {
-  const colors: Record<string, string> = {
-    '食百': 'bg-orange-100 text-orange-800',
-    '水产肉品': 'bg-blue-100 text-blue-800',
-    '蔬果': 'bg-green-100 text-green-800',
-    '熟食冻品': 'bg-red-100 text-red-800',
-    '后勤': 'bg-gray-100 text-gray-800'
-  };
-
-  const colorClass = colors[dept] || 'bg-gray-100 text-gray-800';
-
-  return (
-    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium ${colorClass}`}>
-      {dept}
-    </span>
-  );
-};
-
-const ReportRow: React.FC<{ report: ReportItem; onDelete: (id: string) => void }> = ({ report, onDelete }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
-
-  const toggleExpand = () => setIsExpanded(!isExpanded);
-
-  return (
-    <tr 
-      onClick={toggleExpand}
-      className={`
-        group border-b border-gray-100 transition-all cursor-pointer
-        ${isExpanded ? 'bg-blue-50/50' : 'hover:bg-gray-50'}
-      `}
-    >
-      <td className="px-6 py-4 text-gray-500 whitespace-nowrap font-mono text-xs align-top">
-        <div className="flex items-center gap-2 mt-1">
-          <button 
-            className="text-gray-400 hover:text-blue-600 transition-colors"
-            onClick={(e) => { e.stopPropagation(); toggleExpand(); }}
-          >
-            {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-          </button>
-          <div className="flex items-center gap-1">
-            <Calendar className="w-3 h-3" />
-            {report.date}
-          </div>
-        </div>
-      </td>
-      <td className="px-6 py-4 font-medium text-gray-900 align-top">
-        <div className="flex items-center gap-2 mt-1">
-          <Users className="w-3 h-3 text-gray-400" />
-          {report.employeeName}
-        </div>
-      </td>
-      <td className="px-6 py-4 align-top">
-        <div className="mt-1">
-          <DepartmentBadge dept={report.department} />
-        </div>
-      </td>
-      <td className="px-6 py-4 text-gray-700 leading-relaxed align-top min-w-[300px]">
-        {/* Use font-mono to ensure indentation/spacing aligns perfectly like in a text editor */}
-        <div className={`transition-all duration-300 ease-in-out font-mono text-sm whitespace-pre-wrap ${isExpanded ? '' : 'line-clamp-3 text-gray-500'}`}>
-          {report.content}
-        </div>
-        {!isExpanded && (
-          <div className="text-xs text-blue-500 mt-1 font-medium opacity-0 group-hover:opacity-100 transition-opacity">
-            Click to expand
-          </div>
-        )}
-      </td>
-      <td className="px-6 py-4 text-right align-top">
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            if(confirm('Are you sure you want to delete this record?')) {
-               onDelete(report.id);
-            }
-          }}
-          className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100 mt-1"
-          title="Delete row"
-        >
-          <Trash2 className="w-4 h-4" />
-        </button>
-      </td>
-    </tr>
-  );
-};
+// Fixed department order as requested
+const DEPARTMENTS = ['蔬果', '熟食冻品', '水产肉品', '食百', '后勤'] as const;
 
 export const ReportTable: React.FC<ReportTableProps> = ({ reports, onDelete }) => {
   if (reports.length === 0) return null;
 
+  // Group data by Date -> Department
+  const groupedData = useMemo(() => {
+    const groups: Record<string, Record<string, ReportItem[]>> = {};
+    
+    reports.forEach(report => {
+      const date = report.date;
+      if (!groups[date]) groups[date] = {};
+      
+      const dept = report.department;
+      if (!groups[date][dept]) groups[date][dept] = [];
+      
+      groups[date][dept].push(report);
+    });
+
+    // Sort dates descending
+    return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [reports]);
+
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm text-left">
-          <thead className="bg-gray-50 text-gray-500 font-medium border-b border-gray-100">
-            <tr>
-              <th className="px-6 py-4 w-40 pl-10">日期 (Date)</th>
-              <th className="px-6 py-4 w-32">姓名 (Name)</th>
-              <th className="px-6 py-4 w-32">部门 (Dept)</th>
-              <th className="px-6 py-4">汇报内容 (Click to view details)</th>
-              <th className="px-6 py-4 w-20 text-right">操作</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {reports.map((report) => (
-              <ReportRow key={report.id} report={report} onDelete={onDelete} />
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 overflow-x-auto">
+      <table className="w-full text-sm text-left border-collapse min-w-[1000px]">
+        <thead>
+          <tr className="bg-gray-100 text-gray-700 font-bold border-b border-gray-300">
+            <th className="px-4 py-4 w-32 border-r border-gray-200 sticky left-0 bg-gray-100 z-10 text-center">
+              日期
+            </th>
+            {DEPARTMENTS.map(dept => (
+              <th key={dept} className="px-4 py-4 border-r border-gray-200 text-center min-w-[200px]">
+                {dept}
+              </th>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-200">
+          {groupedData.map(([date, deptData]) => (
+            <tr key={date} className="hover:bg-blue-50/30 transition-colors">
+              {/* Date Column */}
+              <td className="px-4 py-4 font-mono font-medium text-gray-900 border-r border-gray-100 bg-white sticky left-0 z-10 text-center align-middle shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                <div className="flex flex-col items-center justify-center gap-1">
+                  <Calendar className="w-4 h-4 text-blue-500" />
+                  <span>{date}</span>
+                </div>
+              </td>
+
+              {/* Department Columns */}
+              {DEPARTMENTS.map(dept => {
+                const items = deptData[dept];
+                const hasItems = items && items.length > 0;
+
+                return (
+                  <td key={`${date}-${dept}`} className="px-3 py-3 border-r border-gray-100 align-top relative group">
+                    {!hasItems ? (
+                      <div className="flex items-center justify-center h-full min-h-[60px]">
+                        <span className="text-red-500 font-extrabold text-3xl opacity-80 select-none">缺</span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-3">
+                        {items.map(report => (
+                          <div key={report.id} className="relative bg-gray-50 rounded-lg p-2.5 border border-gray-100 hover:border-blue-200 hover:bg-white transition-all">
+                            <div className="font-bold text-xs text-blue-700 mb-1 flex justify-between items-center">
+                              <span>{report.employeeName}</span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (confirm(`确认删除 ${report.employeeName} 的这条汇报吗?`)) {
+                                    onDelete(report.id);
+                                  }
+                                }}
+                                className="text-gray-300 hover:text-red-500 transition-colors p-1"
+                                title="删除此条"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                            <div className="text-gray-700 text-xs whitespace-pre-wrap leading-relaxed">
+                              {report.content}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 };
