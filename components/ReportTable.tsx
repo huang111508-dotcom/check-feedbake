@@ -71,8 +71,8 @@ export const ReportTable: React.FC<ReportTableProps> = ({ reports, onDelete }) =
                     ) : (
                       <div className="flex flex-col gap-3">
                         {items.map(report => (
-                          <div key={report.id} className="relative bg-gray-50 rounded-lg p-2.5 border border-gray-100 hover:border-blue-200 hover:bg-white transition-all">
-                            <div className="font-bold text-xs text-blue-700 mb-1 flex justify-between items-center">
+                          <div key={report.id} className="relative bg-gray-50 rounded-lg p-3 border border-gray-100 hover:border-blue-200 hover:bg-white transition-all">
+                            <div className="font-bold text-xs text-blue-700 mb-2 flex justify-between items-center border-b border-gray-100 pb-1">
                               <span>{report.employeeName}</span>
                               <button
                                 onClick={(e) => {
@@ -87,7 +87,8 @@ export const ReportTable: React.FC<ReportTableProps> = ({ reports, onDelete }) =
                                 <Trash2 className="w-3 h-3" />
                               </button>
                             </div>
-                            <div className="text-gray-700 text-xs whitespace-pre-wrap leading-relaxed">
+                            {/* Improved typography for lists: leading-relaxed and strict whitespace handling */}
+                            <div className="text-gray-700 text-xs whitespace-pre-wrap break-words leading-6 font-mono">
                               {report.content}
                             </div>
                           </div>

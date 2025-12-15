@@ -7,33 +7,36 @@ export const parseDingTalkLogs = async (rawText: string): Promise<ReportItem[]> 
   try {
     const currentYear = new Date().getFullYear();
     const prompt = `
-      You are an administrative assistant for a retail/supermarket team.
-      Your task is to parse unstructured work reports from chat logs (DingTalk/WeChat) into a structured summary table.
+      You are a strict Data Parser for retail work reports.
+      Your ONLY goal is to extract structured data. You must NOT act as an editor.
 
       **Context Info:**
-      - **Current Year**: ${currentYear}. (If a date appears as "12.12" or "10/05" without a year, assume it is ${currentYear}).
+      - **Current Year**: ${currentYear}.
 
       **Rules:**
-      1. **Grouping**: Group reports by **Person** and **Date**. One entry per person per day.
-      2. **Department Classification**: Classify each person into exactly one:
-         - '食百' (Grocery/Dry Goods)
-         - '水产肉品' (Seafood & Meat)
-         - '蔬果' (Produce)
-         - '熟食冻品' (Deli & Frozen)
-         - '后勤' (Logistics/Admin/Security)
-         Default to '后勤' if unknown.
-      3. **Content Preservation (CRITICAL)**: 
-         - The 'content' field must contain the **EXACT RAW TEXT** submitted by the employee.
-         - **DO NOT** remove newlines, indentation, or extra spaces.
-         - **DO NOT** reformat lists (e.g., do not change "1、" to "1.").
-         - **DO NOT** summarize or fix typos.
-         - Keep the structure exactly as provided in the input, including empty lines between paragraphs.
-      4. **Date Formatting**: 
-         - Extract the date. 
-         - If the year is missing (e.g., "12.12"), output it as "${currentYear}-12-12".
-         - Output format: YYYY-MM-DD.
+      1. **Grouping**: One entry per person per day.
+      2. **Department**: Classify into '食百', '水产肉品', '蔬果', '熟食冻品', '后勤'. Default '后勤'.
+      3. **Date**: YYYY-MM-DD format.
 
-      **Input Text:**
+      4. **CRITICAL INSTRUCTION - CONTENT PRESERVATION**:
+         - The 'content' field must be a **VERBATIM COPY** of what the user wrote.
+         - **NEVER** merge lines. If the input has a list, the output MUST have a list with '\\n' characters.
+         - **NEVER** delete numbers (1., 2., 3.).
+         - **NEVER** fix grammar or remove spaces.
+         
+         **BAD Example (DO NOT DO THIS):**
+         Input:
+         1. Apple
+         2. Banana
+         Output JSON content: "1. Apple 2. Banana"  <-- WRONG! You merged lines.
+
+         **GOOD Example (DO THIS):**
+         Input:
+         1. Apple
+         2. Banana
+         Output JSON content: "1. Apple\n2. Banana" <-- CORRECT! Newlines preserved.
+
+      **Input Text to Parse:**
       ${rawText}
     `;
 
