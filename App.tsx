@@ -5,7 +5,7 @@ import { Dashboard } from './components/Dashboard';
 import { parseDingTalkLogs } from './services/geminiService';
 import { exportToExcel } from './utils/exportUtils';
 import { ReportItem, ParsingStatus } from './types';
-import { Download, LayoutDashboard, MessageSquareText, RefreshCw, Calendar as CalendarIcon, Filter, Cloud, CloudOff, AlertTriangle } from 'lucide-react';
+import { Download, LayoutDashboard, MessageSquareText, RefreshCw, Calendar as CalendarIcon, Filter, Cloud, CloudOff, AlertTriangle, X } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc, writeBatch, getDocs } from "firebase/firestore";
 
@@ -40,8 +40,9 @@ const App: React.FC = () => {
   const [status, setStatus] = useState<ParsingStatus>(ParsingStatus.IDLE);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
-  // Date Filtering State
-  const [filterDate, setFilterDate] = useState<string>('');
+  // Date Range Filtering State
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
 
   // 1. Real-time Cloud Sync (Firebase)
   useEffect(() => {
@@ -91,7 +92,8 @@ const App: React.FC = () => {
       }
       
       setStatus(ParsingStatus.SUCCESS);
-      setFilterDate(''); // Reset filter to show new data
+      // Reset filters to show new data immediately if needed, or keep them. 
+      // Let's keep filters as is so user context isn't lost, unless they just added data outside the range.
     } catch (e) {
       console.error(e);
       setStatus(ParsingStatus.ERROR);
@@ -112,9 +114,33 @@ const App: React.FC = () => {
     }
   };
 
+  // Compute filtered reports based on Date Range
+  const displayedReports = useMemo(() => {
+    if (!startDate && !endDate) return reports;
+
+    return reports.filter(r => {
+      let isValid = true;
+      if (startDate && r.date < startDate) isValid = false;
+      if (endDate && r.date > endDate) isValid = false;
+      return isValid;
+    });
+  }, [reports, startDate, endDate]);
+
+  const isFiltered = !!(startDate || endDate);
+
   const handleExport = () => {
-    const dateStr = filterDate || new Date().toISOString().split('T')[0];
-    exportToExcel(displayedReports, `DingTalk_Summary_${dateStr}.xlsx`);
+    let filename = 'DingTalk_Summary';
+    if (startDate && endDate) {
+      filename += `_${startDate}_to_${endDate}`;
+    } else if (startDate) {
+      filename += `_from_${startDate}`;
+    } else if (endDate) {
+      filename += `_until_${endDate}`;
+    } else {
+      filename += `_All_Time`;
+    }
+    
+    exportToExcel(displayedReports, `${filename}.xlsx`);
   };
 
   const handleReset = async () => {
@@ -148,12 +174,6 @@ const App: React.FC = () => {
     }
   };
 
-  // Compute filtered reports
-  const displayedReports = useMemo(() => {
-    if (!filterDate) return reports;
-    return reports.filter(r => r.date === filterDate);
-  }, [reports, filterDate]);
-
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 pb-20">
       {/* Configuration Warning Banner */}
@@ -173,41 +193,51 @@ const App: React.FC = () => {
             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white shrink-0">
               <MessageSquareText className="w-5 h-5" />
             </div>
-            <h1 className="text-xl font-bold tracking-tight text-gray-900 truncate">DingTalk Parser</h1>
+            <h1 className="text-xl font-bold tracking-tight text-gray-900 truncate hidden sm:block">DingTalk Parser</h1>
             <div className={`hidden md:flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium border ${isConfigured ? 'bg-green-50 text-green-700 border-green-100' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
                {isConfigured ? <Cloud className="w-3 h-3" /> : <CloudOff className="w-3 h-3" />}
                <span>{isConfigured ? 'Cloud Connected' : 'Local Mode'}</span>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-             {/* Date Filter */}
-             <div className="relative group">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Filter className={`w-4 h-4 ${filterDate ? 'text-blue-500' : 'text-gray-400'}`} />
+          <div className="flex items-center gap-2 sm:gap-4">
+             {/* Date Range Filter */}
+             <div className="flex items-center bg-gray-50 border border-gray-300 rounded-lg px-2 py-1.5 shadow-sm focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 transition-all">
+                <div className="relative group flex items-center gap-1">
+                   <span className="text-xs text-gray-400 font-medium hidden sm:block">From</span>
+                   <input 
+                     type="date"
+                     value={startDate}
+                     onChange={(e) => setStartDate(e.target.value)}
+                     className="w-28 sm:w-auto bg-transparent border-none p-0 text-sm text-gray-700 focus:ring-0 font-medium outline-none"
+                     placeholder="Start"
+                   />
                 </div>
-                <input 
-                  type="date"
-                  value={filterDate}
-                  onChange={(e) => setFilterDate(e.target.value)}
-                  className={`
-                    pl-9 pr-3 py-1.5 text-sm border rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition-all
-                    ${filterDate ? 'border-blue-200 bg-blue-50 text-blue-800 font-medium' : 'border-gray-300 text-gray-600 bg-gray-50'}
-                  `}
-                  title="Filter history by date"
-                />
-                {filterDate && (
-                  <button 
-                    onClick={() => setFilterDate('')}
-                    className="absolute inset-y-0 right-8 flex items-center text-xs text-blue-600 hover:text-blue-800 font-medium"
+                <span className="mx-1 text-gray-300">|</span>
+                <div className="relative group flex items-center gap-1">
+                   <span className="text-xs text-gray-400 font-medium hidden sm:block">To</span>
+                   <input 
+                     type="date"
+                     value={endDate}
+                     onChange={(e) => setEndDate(e.target.value)}
+                     className="w-28 sm:w-auto bg-transparent border-none p-0 text-sm text-gray-700 focus:ring-0 font-medium outline-none"
+                     placeholder="End"
+                   />
+                </div>
+                
+                {(startDate || endDate) && (
+                  <button
+                    onClick={() => { setStartDate(''); setEndDate(''); }}
+                    className="ml-1 p-0.5 text-gray-400 hover:text-red-500 rounded-full hover:bg-gray-100 transition-colors"
+                    title="Clear filter"
                   >
-                    Clear
+                    <X className="w-4 h-4" />
                   </button>
                 )}
              </div>
 
              {reports.length > 0 && (
-               <div className="flex items-center gap-2 border-l border-gray-200 pl-3 ml-1">
+               <div className="flex items-center gap-2 border-l border-gray-200 pl-2 sm:pl-4 ml-1">
                   <button
                     onClick={handleExport}
                     className="p-2 text-gray-600 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
@@ -217,7 +247,7 @@ const App: React.FC = () => {
                   </button>
                   <button
                     onClick={handleReset}
-                    className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors hidden sm:block"
                     title="Clear All History (Danger)"
                   >
                     <Trash2 className="w-5 h-5" />
@@ -229,8 +259,8 @@ const App: React.FC = () => {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Input Section - Only show if not strictly filtering history, or always show for quick add */}
-        {!filterDate && (
+        {/* Input Section - Hide when actively filtering history to focus on the report view */}
+        {!isFiltered && (
           <InputSection 
             onAnalyze={handleAnalyze} 
             isAnalyzing={status === ParsingStatus.ANALYZING} 
@@ -249,11 +279,13 @@ const App: React.FC = () => {
               <div className="flex items-center gap-2">
                 <LayoutDashboard className="w-5 h-5 text-gray-500" />
                 <h2 className="text-lg font-semibold text-gray-800">
-                  {filterDate ? `Dashboard (${filterDate})` : 'All Time Overview'}
+                  {isFiltered 
+                    ? `Dashboard (${startDate || 'Start'} - ${endDate || 'Now'})` 
+                    : 'All Time Overview'}
                 </h2>
               </div>
-              <div className="text-sm text-gray-500">
-                Total Records: {reports.length} {filterDate && `(Showing ${displayedReports.length})`}
+              <div className="text-sm text-gray-500 hidden sm:block">
+                Total Records: {reports.length} {isFiltered && `(Showing ${displayedReports.length})`}
               </div>
             </div>
 
@@ -261,15 +293,18 @@ const App: React.FC = () => {
             <Dashboard reports={displayedReports} />
 
             <div className="flex items-center justify-between mb-4 mt-8">
-               <h2 className="text-lg font-semibold text-gray-800">
-                 {filterDate ? `Records for ${filterDate}` : 'Historical Records'}
+               <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                 <CalendarIcon className="w-5 h-5 text-gray-500" />
+                 {isFiltered 
+                    ? `Records (${startDate || '...'} to ${endDate || '...'})` 
+                    : 'Historical Records'}
                </h2>
             </div>
             
             {displayedReports.length === 0 ? (
               <div className="text-center py-12 bg-white rounded-2xl border border-gray-200 border-dashed">
-                 <p className="text-gray-500">No records found for this date.</p>
-                 <button onClick={() => setFilterDate('')} className="mt-2 text-blue-600 hover:underline">Clear Filter</button>
+                 <p className="text-gray-500">No records found for this date range.</p>
+                 <button onClick={() => {setStartDate(''); setEndDate('');}} className="mt-2 text-blue-600 hover:underline">Clear Filter</button>
               </div>
             ) : (
               <ReportTable reports={displayedReports} onDelete={handleDelete} />
