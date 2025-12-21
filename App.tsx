@@ -145,10 +145,17 @@ const App: React.FC = () => {
 
   const handleReset = async () => {
     const confirmMsg = isConfigured 
-      ? "DANGER: This will permanently delete ALL records from the cloud database for EVERYONE. Continue?" 
-      : "Are you sure you want to clear all local data?";
+      ? "警告：这将永久删除云端数据库中的【所有】记录，且不可恢复！继续？" 
+      : "确定要清空本地所有数据吗？";
 
     if (confirm(confirmMsg)) {
+      // PASSWORD CHECK
+      const password = prompt("请输入管理员密码以执行清空操作:");
+      if (password !== "admin888") {
+        if (password !== null) alert("密码错误，操作已取消。");
+        return;
+      }
+
       if (isConfigured && db) {
         // Batch delete for Cloud
         try {
