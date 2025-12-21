@@ -78,7 +78,12 @@ export const ReportTable: React.FC<ReportTableProps> = ({ reports, onDelete }) =
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   if (confirm(`确认删除 ${report.employeeName} 的这条汇报吗?`)) {
-                                    onDelete(report.id);
+                                    const password = prompt("请输入管理员密码进行删除:");
+                                    if (password === "admin888") {
+                                      onDelete(report.id);
+                                    } else if (password !== null) {
+                                      alert("密码错误，无法删除");
+                                    }
                                   }
                                 }}
                                 className="text-gray-300 hover:text-red-500 transition-colors p-1"
