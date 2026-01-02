@@ -5,9 +5,9 @@ import { Dashboard } from './components/Dashboard';
 import { parseDingTalkLogs } from './services/geminiService';
 import { exportToExcel } from './utils/exportUtils';
 import { ReportItem, ParsingStatus } from './types';
-import { Download, LayoutDashboard, MessageSquareText, RefreshCw, Calendar as CalendarIcon, Filter, Cloud, CloudOff, AlertTriangle, X } from 'lucide-react';
+import { Download, LayoutDashboard, MessageSquareText, RefreshCw, Calendar as CalendarIcon, Filter, Cloud, CloudOff, AlertTriangle, X, History } from 'lucide-react';
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc, writeBatch, getDocs } from "firebase/firestore";
+import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc, writeBatch, getDocs, where } from "firebase/firestore";
 
 // ------------------------------------------------------------------
 // Firebase Configuration
@@ -35,6 +35,16 @@ if (isConfigured) {
   }
 }
 
+// Helper to get date string YYYY-MM-DD for X days ago
+const getDateDaysAgo = (days: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const App: React.FC = () => {
   const [reports, setReports] = useState<ReportItem[]>([]);
   const [status, setStatus] = useState<ParsingStatus>(ParsingStatus.IDLE);
@@ -44,12 +54,34 @@ const App: React.FC = () => {
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
 
+  // Performance Optimization: Only load full history if requested
+  const [isFullHistory, setIsFullHistory] = useState<boolean>(false);
+
+  // Auto-switch to full history if a start date is selected
+  useEffect(() => {
+    if (startDate && !isFullHistory) {
+      setIsFullHistory(true);
+    }
+  }, [startDate, isFullHistory]);
+
   // 1. Real-time Cloud Sync (Firebase)
   useEffect(() => {
     if (!isConfigured || !db) return;
 
-    // Listen to 'reports' collection, ordered by date descending
-    const q = query(collection(db, "reports"), orderBy("date", "desc"));
+    let q;
+
+    if (isFullHistory) {
+      // Load ALL data
+      q = query(collection(db, "reports"), orderBy("date", "desc"));
+    } else {
+      // DEFAULT: Load only last 14 days for performance
+      const fourteenDaysAgo = getDateDaysAgo(14);
+      q = query(
+        collection(db, "reports"), 
+        where("date", ">=", fourteenDaysAgo),
+        orderBy("date", "desc")
+      );
+    }
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const cloudReports = snapshot.docs.map(doc => ({
@@ -59,14 +91,14 @@ const App: React.FC = () => {
       setReports(cloudReports);
     }, (error) => {
       console.error("Sync error:", error);
-      // Only show error if it's likely a permission issue, to avoid scaring users on network blips
+      // Only show error if it's likely a permission issue
       if (error.code === 'permission-denied') {
         setErrorMsg("Cloud sync failed: Permission denied. Please check Firestore Rules.");
       }
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [isFullHistory]); // Re-run effect when mode changes
 
   const handleAnalyze = async (text: string) => {
     setStatus(ParsingStatus.ANALYZING);
@@ -92,8 +124,6 @@ const App: React.FC = () => {
       }
       
       setStatus(ParsingStatus.SUCCESS);
-      // Reset filters to show new data immediately if needed, or keep them. 
-      // Let's keep filters as is so user context isn't lost, unless they just added data outside the range.
     } catch (e) {
       console.error(e);
       setStatus(ParsingStatus.ERROR);
@@ -291,8 +321,17 @@ const App: React.FC = () => {
                     : 'All Time Overview'}
                 </h2>
               </div>
-              <div className="text-sm text-gray-500 hidden sm:block">
-                Total Records: {reports.length} {isFiltered && `(Showing ${displayedReports.length})`}
+              <div className="flex items-center gap-4">
+                {/* Visual Indicator for Data Load Status */}
+                {!isFullHistory && !isFiltered && (
+                  <div className="flex items-center gap-1.5 px-3 py-1 bg-blue-50 text-blue-700 text-xs rounded-full border border-blue-100">
+                    <History className="w-3.5 h-3.5" />
+                    <span>Showing last 14 days</span>
+                  </div>
+                )}
+                <div className="text-sm text-gray-500 hidden sm:block">
+                  Total Records: {reports.length} {isFiltered && `(Showing ${displayedReports.length})`}
+                </div>
               </div>
             </div>
 
@@ -306,6 +345,16 @@ const App: React.FC = () => {
                     ? `Records (${startDate || '...'} to ${endDate || '...'})` 
                     : 'Historical Records'}
                </h2>
+               
+               {/* Manual Load All Button (optional but helpful if user just wants to scroll) */}
+               {!isFullHistory && !isFiltered && (
+                 <button 
+                   onClick={() => setIsFullHistory(true)}
+                   className="text-sm text-blue-600 hover:text-blue-800 font-medium hover:underline"
+                 >
+                   Load older history...
+                 </button>
+               )}
             </div>
             
             {displayedReports.length === 0 ? (
