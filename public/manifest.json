@@ -3,12 +3,12 @@
   "name": "钉钉日报智能整理",
   "icons": [
     {
-      "src": "https://cdn-icons-png.flaticon.com/512/3063/3063835.png",
+      "src": "/logo.png",
       "sizes": "512x512",
       "type": "image/png"
     },
     {
-      "src": "https://cdn-icons-png.flaticon.com/512/3063/3063835.png",
+      "src": "/logo.png",
       "sizes": "192x192",
       "type": "image/png"
     }

@@ -8,7 +8,7 @@ interface ReportTableProps {
 }
 
 // Fixed department order as requested
-const DEPARTMENTS = ['蔬果', '熟食冻品', '水产肉品', '食百', '后勤'] as const;
+const DEPARTMENTS = ['蔬果', '水产', '肉品冻品', '熟食', '烘焙', '食百', '后勤', '仓库'] as const;
 
 export const ReportTable: React.FC<ReportTableProps> = ({ reports, onDelete }) => {
   if (reports.length === 0) return null;
@@ -33,14 +33,14 @@ export const ReportTable: React.FC<ReportTableProps> = ({ reports, onDelete }) =
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 overflow-x-auto">
-      <table className="w-full text-sm text-left border-collapse min-w-[1000px]">
+      <table className="w-full text-sm text-left border-collapse min-w-[1200px]">
         <thead>
           <tr className="bg-gray-100 text-gray-700 font-bold border-b border-gray-300">
             <th className="px-4 py-4 w-32 border-r border-gray-200 sticky left-0 bg-gray-100 z-10 text-center">
               日期
             </th>
             {DEPARTMENTS.map(dept => (
-              <th key={dept} className="px-4 py-4 border-r border-gray-200 text-center min-w-[200px]">
+              <th key={dept} className="px-4 py-4 border-r border-gray-200 text-center min-w-[180px]">
                 {dept}
               </th>
             ))}

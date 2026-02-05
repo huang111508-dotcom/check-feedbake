@@ -15,7 +15,7 @@ export const parseDingTalkLogs = async (rawText: string): Promise<ReportItem[]> 
 
       **Rules:**
       1. **Grouping**: One entry per person per day.
-      2. **Department**: Classify into '食百', '水产肉品', '蔬果', '熟食冻品', '后勤'. Default '后勤'.
+      2. **Department**: Classify into '蔬果', '水产', '肉品冻品', '熟食', '烘焙', '食百', '后勤', '仓库'. Default '后勤'.
       3. **Date**: YYYY-MM-DD format.
 
       4. **CRITICAL INSTRUCTION - CONTENT PRESERVATION**:
@@ -52,7 +52,10 @@ export const parseDingTalkLogs = async (rawText: string): Promise<ReportItem[]> 
             properties: {
               employeeName: { type: Type.STRING },
               date: { type: Type.STRING },
-              department: { type: Type.STRING, enum: ['食百', '水产肉品', '蔬果', '熟食冻品', '后勤'] },
+              department: { 
+                type: Type.STRING, 
+                enum: ['蔬果', '水产', '肉品冻品', '熟食', '烘焙', '食百', '后勤', '仓库'] 
+              },
               content: { type: Type.STRING }
             },
             required: ["employeeName", "date", "department", "content"]
