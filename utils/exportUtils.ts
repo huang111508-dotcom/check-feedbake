@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx';
 import { ReportItem } from '../types';
 
-const DEPARTMENTS = ['蔬果', '水产', '肉品冻品', '熟食', '烘焙', '食百', '后勤', '仓库'];
+const DEPARTMENTS = ['蔬果', '熟食冻品', '水产肉品', '食百', '后勤'];
 
 export const exportToExcel = (reports: ReportItem[], filename: string = 'DingTalk_Summary.xlsx') => {
   // 1. Group data by Date -> Department
@@ -44,14 +44,11 @@ export const exportToExcel = (reports: ReportItem[], filename: string = 'DingTal
   // 4. Set Column Widths
   const wscols = [
     { wch: 15 }, // Date
-    { wch: 30 }, // 蔬果
-    { wch: 30 }, // 水产
-    { wch: 30 }, // 肉品冻品
-    { wch: 30 }, // 熟食
-    { wch: 30 }, // 烘焙
-    { wch: 30 }, // 食百
-    { wch: 30 }, // 后勤
-    { wch: 30 }, // 仓库
+    { wch: 40 }, // 蔬果
+    { wch: 40 }, // 熟食冻品
+    { wch: 40 }, // 水产肉品
+    { wch: 40 }, // 食百
+    { wch: 40 }, // 后勤
   ];
   worksheet['!cols'] = wscols;
 

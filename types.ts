@@ -2,7 +2,7 @@ export interface ReportItem {
   id: string;
   employeeName: string;
   date: string;
-  department: '蔬果' | '水产' | '肉品冻品' | '熟食' | '烘焙' | '食百' | '后勤' | '仓库';
+  department: '食百' | '水产肉品' | '蔬果' | '熟食冻品' | '后勤';
   content: string;
 }
 
